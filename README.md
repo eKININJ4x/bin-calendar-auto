@@ -5,6 +5,7 @@ Automatically publish Barking & Dagenham Council bin collections to a subscribed
 ## Setup
 
 1. Under **Settings → Secrets and variables → Actions**, create a repository secret called **BIN_UPRN** containing the property UPRN from your original script. Don't commit a UPRN to this public repository.
+   Also create **BIN_POSTCODE**, containing your full postcode (with space), for the fallback source if the council blocks GitHub with 403. The postcode is not placed in the calendar or committed. The fallback uses the independent UK Bin Day service (not operated by the council) and may not cover every property.
 2. Under **Settings → Actions → General → Workflow permissions**, allow **Read and write permissions** where available.
 3. Under **Actions → Update bin collection calendar → Run workflow**, run once with **force** enabled. The workflow runs tests, fetches the council dates, writes `docs/bin_collection_schedule.ics` and commits the update.
 4. Under **Settings → Pages**, choose **Deploy from a branch**, branch **main**, folder **/docs**, and save.
