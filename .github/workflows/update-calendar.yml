@@ -29,6 +29,7 @@ jobs:
       - name: Refresh published calendar
         env:
           BIN_UPRN: ${{ secrets.BIN_UPRN }}
+          BIN_POSTCODE: ${{ secrets.BIN_POSTCODE }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force == true }}
         run: |
           if [ "$FORCE" = "true" ]; then
