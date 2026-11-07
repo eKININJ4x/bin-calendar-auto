@@ -26,6 +26,35 @@ def fetch_data(uprn):
     with urllib.request.urlopen(request, timeout=30) as response:
         return json.load(response)
 
+def fetch_fallback(uprn, postcode):
+    """Try the independent UK Bin Day service if the council rejects cloud requests."""
+    from urllib.parse import urlencode
+    params = urlencode({"postcode": postcode})
+    url = f"https://ukbinday.co.uk/api/v2/E09000002/view/{uprn}?{params}"
+    request = urllib.request.Request(url, headers={
+        "Accept": "application/json", "User-Agent": "BinCalendarAuto/1.2"
+    })
+    with urllib.request.urlopen(request, timeout=60) as response:
+        raw = json.load(response)
+    if not isinstance(raw, dict) or raw.get("deeplink"):
+        raise ValueError("Fallback service cannot provide collection dates for this property")
+    rows = raw.get("dates")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("Fallback service returned no collection dates")
+    events = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Invalid fallback collection entry")
+        kind = row.get("type")
+        label = kind.get("label") if isinstance(kind, dict) else None
+        if not isinstance(label, str) or not label.strip():
+            raise ValueError("Missing fallback bin type")
+        day = date.fromisoformat(row["date"])
+        events.add((label.strip(), day))
+    if not events:
+        raise ValueError("Fallback calendar empty")
+    return sorted(events, key=lambda item: (item[1], item[0]))
+
 def parse_dates(raw):
     if not isinstance(raw, dict) or not isinstance(raw.get("results"), list):
         raise ValueError("Unexpected council response: missing results list")
@@ -116,8 +145,28 @@ def main():
         uprn = os.getenv("BIN_UPRN", "").strip()
         if not uprn.isdigit():
             raise SystemExit("Set the BIN_UPRN repository Actions secret to your property UPRN.")
-        raw = fetch_data(uprn)
-    events = parse_dates(raw)
+        try:
+            raw = fetch_data(uprn)
+            events = parse_dates(raw)
+            print("Source: Barking & Dagenham Council")
+        except Exception as primary_error:
+            print(f"Council request failed: {type(primary_error).__name__}: {primary_error}")
+            postcode = os.getenv("BIN_POSTCODE", "").strip()
+            if not postcode:
+                raise RuntimeError(
+                    "Council request failed. Set BIN_POSTCODE as an Actions secret "
+                    "to enable the independent fallback provider."
+                ) from primary_error
+            try:
+                events = fetch_fallback(uprn, postcode)
+                print("Source: UK Bin Day fallback")
+            except Exception as fallback_error:
+                raise RuntimeError(
+                    f"Council and fallback both failed; old calendar preserved. "
+                    f"Fallback: {type(fallback_error).__name__}: {fallback_error}"
+                ) from fallback_error
+    if args.fixture:
+        events = parse_dates(raw)
     content = build_calendar(events)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(content.encode("utf-8"))
